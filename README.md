@@ -27,8 +27,10 @@ Use the package itself as the JSX import source:
 import { Elem } from 'barejsx';
 
 const elem = <Elem as="section">
-	<div className="example">
+	<div class="example">
 		<span>Hello</span>
 	</div>
 </Elem>;
+
+elem.render(document.body);
 ```
