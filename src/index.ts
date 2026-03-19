@@ -1,6 +1,7 @@
 export { default as Elem } from './Elem';
 export type {
 	Component,
+	ElemEventCallback,
 	ElemInput,
 	ElemProps,
 	JsxChild,

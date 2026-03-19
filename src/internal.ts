@@ -96,6 +96,13 @@ function normalizeProps(props: Record<string, unknown> | null | undefined): JsxE
 			continue;
 		}
 
+		if (key === 'class') {
+			if (!hasOwn(source, 'className')) {
+				normalized.className = source[key] as string;
+			}
+			continue;
+		}
+
 		normalized[key] = source[key];
 	}
 
@@ -179,6 +186,7 @@ function createJsxValue(type: string | JsxComponentType<any> | typeof Fragment, 
 
 export {
 	Fragment,
+	createStructuredElement,
 	createJsxValue,
 	getJsxNodeId,
 	hasOwn,

@@ -25,6 +25,7 @@ export namespace JSX {
 	export interface IntrinsicElements {
 		[elementName: string]: {
 			[key: string]: unknown;
+			class?: string;
 			children?: JsxChild;
 			nodeId?: string;
 		};

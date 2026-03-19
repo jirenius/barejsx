@@ -43,6 +43,19 @@ test('lowercase JSX tags become structured JSX objects', () => {
 	assert.deepEqual(node.props.children[1].props.children, [ { text: 'world' } ]);
 });
 
+test('lowercase JSX tags support class as an alias for className', () => {
+	const aliased = jsx('div', { class: 'from-class' });
+	const explicit = jsx('div', {
+		class: 'from-class',
+		className: 'from-className',
+	});
+
+	assert.equal(aliased.props.className, 'from-class');
+	assert.equal(Object.prototype.hasOwnProperty.call(aliased.props, 'class'), false);
+	assert.equal(explicit.props.className, 'from-className');
+	assert.equal(Object.prototype.hasOwnProperty.call(explicit.props, 'class'), false);
+});
+
 test('Elem JSX tags return Elem instances', () => {
 	const elem = jsx(Elem, {
 		as: 'section',
@@ -52,7 +65,7 @@ test('Elem JSX tags return Elem instances', () => {
 	assert.ok(elem instanceof Elem);
 	assert.equal(elem.tagName, 'section');
 	assert.equal(elem.element.type, 'section');
-	assert.equal(elem.props.children.type, 'span');
+	assert.equal(elem.props.children[0].type, 'span');
 });
 
 test('Elem can be constructed from a structured JSX object', () => {

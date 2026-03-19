@@ -3,6 +3,8 @@ export interface Component {
 	unrender(): void;
 }
 
+export type ElemEventCallback = (ctx: unknown, event: unknown) => void;
+
 export interface JsxTextNode {
 	text: string;
 }
@@ -14,6 +16,11 @@ export interface JsxComponentNode {
 
 export interface JsxElementProps {
 	[key: string]: unknown;
+	className?: string;
+	attributes?: Record<string, unknown>;
+	properties?: Record<string, unknown>;
+	style?: Record<string, string | number>;
+	events?: Record<string, ElemEventCallback>;
 	children?: JsxNormalizedChild[];
 	nodeId?: string;
 }
@@ -43,6 +50,7 @@ export interface JsxComponentType<Props = any> {
 export interface ElemProps {
 	[key: string]: unknown;
 	as?: string;
+	class?: string;
 	children?: JsxChild;
 }
 

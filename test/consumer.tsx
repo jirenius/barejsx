@@ -15,7 +15,7 @@ class CustomComponent implements Component {
 }
 
 const node = <div className="example">Hello <span>world</span></div>;
-const elem = <Elem as="main">{node}</Elem>;
+const elem = <Elem as="main">{node}<CustomComponent label="nested" /></Elem>;
 const rawElem = new Elem({ type: 'div', props: { className: 'direct' } });
 const custom = <CustomComponent label="ok" />;
 
