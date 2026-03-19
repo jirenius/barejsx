@@ -1,0 +1,51 @@
+{
+  "name": "barejsx",
+  "version": "0.1.0",
+  "description": "Standalone JSX-native component primitives for simple render/unrender components.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.mjs"
+    },
+    "./jsx-runtime": {
+      "types": "./dist/jsx-runtime.d.ts",
+      "import": "./dist/jsx-runtime.mjs",
+      "require": "./dist/jsx-runtime.cjs",
+      "default": "./dist/jsx-runtime.mjs"
+    },
+    "./jsx-dev-runtime": {
+      "types": "./dist/jsx-dev-runtime.d.ts",
+      "import": "./dist/jsx-dev-runtime.mjs",
+      "require": "./dist/jsx-dev-runtime.cjs",
+      "default": "./dist/jsx-dev-runtime.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true });\"",
+    "build": "npm run clean && tsdown && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p test/tsconfig.json",
+    "test": "npm run build && npm run typecheck && node --test test/*.test.mjs"
+  },
+  "keywords": [
+    "jsx",
+    "barejsx",
+    "component"
+  ],
+  "author": "Samuel Jirenius",
+  "license": "MIT",
+  "devDependencies": {
+    "tsdown": "^0.14.2",
+    "typescript": "^5.8.3"
+  }
+}

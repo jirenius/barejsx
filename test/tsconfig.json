@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2020", "DOM"],
+    "strict": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "barejsx",
+    "noEmit": true,
+    "paths": {
+      "barejsx": ["../dist/index.d.ts"],
+      "barejsx/jsx-runtime": ["../dist/jsx-runtime.d.ts"],
+      "barejsx/jsx-dev-runtime": ["../dist/jsx-dev-runtime.d.ts"]
+    }
+  },
+  "include": ["./consumer.tsx"]
+}
