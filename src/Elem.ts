@@ -6,6 +6,7 @@ import type {
 	ElemProps,
 	JsxComponentNode,
 	JsxElementObject,
+	JsxExpression,
 	JsxElementProps,
 	JsxNormalizedChild,
 	JsxTextNode,
@@ -56,6 +57,15 @@ type PreparedNode = PreparedElementNode | PreparedTextNode | PreparedComponentNo
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
 	return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isElemInput(value: JsxExpression): value is ElemInput {
+	return !!value &&
+		typeof value === 'object' &&
+		'type' in value &&
+		typeof value.type === 'string' &&
+		'props' in value &&
+		isObjectRecord(value.props);
 }
 
 function isJsxElementObject(value: JsxNormalizedChild): value is JsxElementObject {
@@ -366,7 +376,7 @@ function prepareNode(
 class Elem implements Component {
 	/**
 	 * Creates a new element component.
-	 * @param element Structured JSX element object.
+	 * @param element JSX expression whose runtime value must be a structured JSX element object.
 	 */
 	/** Structured JSX element model used as the root node. */
 	public readonly element: ElemInput;
@@ -381,8 +391,8 @@ class Elem implements Component {
 	private ctx: unknown;
 	private el: Node | null;
 
-	constructor(element: ElemInput) {
-		if (!element || typeof element.type !== 'string' || !isObjectRecord(element.props)) {
+	constructor(element: JsxExpression) {
+		if (!isElemInput(element)) {
 			throw new Error("Elem requires a structured JSX element object.");
 		}
 

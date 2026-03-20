@@ -13,9 +13,7 @@ class CustomComponent {
 		this.name = name;
 	}
 
-	render() {
-		return null;
-	}
+	render() {}
 
 	unrender() {}
 

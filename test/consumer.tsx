@@ -1,9 +1,7 @@
 import { Elem, type Component } from 'barejsx';
 
 class CustomComponent implements Component {
-	render(_el: ParentNode): Node | null {
-		return null;
-	}
+	render(_el: ParentNode): void {}
 
 	unrender(): void {}
 
