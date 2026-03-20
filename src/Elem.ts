@@ -58,15 +58,6 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
 	return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-function isElemInput(value: JsxExpression): value is ElemInput {
-	return !!value &&
-		typeof value === 'object' &&
-		'type' in value &&
-		typeof value.type === 'string' &&
-		'props' in value &&
-		isObjectRecord(value.props);
-}
-
 function isJsxElementObject(value: JsxNormalizedChild): value is JsxElementObject {
 	return 'type' in value && typeof value.type === 'string';
 }
@@ -149,34 +140,6 @@ function getEventBucket(props: JsxElementProps): Record<string, ElemEventCallbac
 		return {};
 	}
 	return bucket as Record<string, ElemEventCallback>;
-}
-
-function ensureAttributeBucket(props: JsxElementProps): Record<string, unknown> {
-	if (!isObjectRecord(props.attributes)) {
-		props.attributes = {};
-	}
-	return props.attributes as Record<string, unknown>;
-}
-
-function ensurePropertyBucket(props: JsxElementProps): Record<string, unknown> {
-	if (!isObjectRecord(props.properties)) {
-		props.properties = {};
-	}
-	return props.properties as Record<string, unknown>;
-}
-
-function ensureStyleBucket(props: JsxElementProps): Record<string, string | number> {
-	if (!isObjectRecord(props.style)) {
-		props.style = {};
-	}
-	return props.style as Record<string, string | number>;
-}
-
-function ensureEventBucket(props: JsxElementProps): Record<string, ElemEventCallback> {
-	if (!isObjectRecord(props.events)) {
-		props.events = {};
-	}
-	return props.events as Record<string, ElemEventCallback>;
 }
 
 function setClassNameValue(props: JsxElementProps, className: string | null): void {
@@ -265,10 +228,6 @@ function collectInitialProperties(props: JsxElementProps): Record<string, unknow
 	return Object.assign(properties, getPropertyBucket(props));
 }
 
-function collectInitialStyles(props: JsxElementProps): Record<string, string | number> {
-	return Object.assign({}, getStyleBucket(props));
-}
-
 function collectInitialEvents(props: JsxElementProps): Record<string, ElemEventCallback> {
 	const events: Record<string, ElemEventCallback> = {};
 
@@ -289,19 +248,6 @@ function collectInitialEvents(props: JsxElementProps): Record<string, ElemEventC
 	}
 
 	return Object.assign(events, getEventBucket(props));
-}
-
-function getPropertyValue(props: JsxElementProps, name: string): unknown {
-	const properties = getPropertyBucket(props);
-	if (hasOwn(properties, name)) {
-		return properties[name];
-	}
-
-	if (DIRECT_PROPERTY_NAMES[name] && hasOwn(props, name)) {
-		return props[name];
-	}
-
-	return undefined;
 }
 
 function prepareNode(
@@ -359,6 +305,294 @@ function prepareNode(
 	}
 
 	throw new Error("Unsupported JSX child type.");
+}
+
+function prepareJsxRoot(element: JsxExpression): {
+	node: PreparedElementNode;
+	idNode: Record<string, PreparedNode>;
+} {
+	// `Elem` accepts a broad JSX expression type but only element-rooted values are valid here.
+	if (!element ||
+		typeof element !== 'object' ||
+		!('type' in element) ||
+		typeof element.type !== 'string' ||
+		!('props' in element) ||
+		!isObjectRecord(element.props)
+	) {
+		throw new Error("Elem requires a structured JSX element object.");
+	}
+
+	const idNode: Record<string, PreparedNode> = {};
+	const node = prepareNode(element, idNode) as PreparedElementNode;
+	return { node, idNode };
+}
+
+function getPreparedNode(idNode: Record<string, PreparedNode>, id: string): PreparedNode {
+	const node = idNode[id];
+	if (!node) {
+		throw new Error("Unknown node id: " + id);
+	}
+	return node;
+}
+
+function getElementPreparedNode(idNode: Record<string, PreparedNode>, id: string): PreparedElementNode {
+	const node = getPreparedNode(idNode, id);
+	if (!isElementNode(node)) {
+		throw new Error("Node must be of type element.");
+	}
+	return node;
+}
+
+function renderPreparedNode(ctx: unknown, parent: ParentNode, node: PreparedNode): Node {
+	if (isElementNode(node)) {
+		const el = document.createElement(node.model.type);
+		const props = node.model.props;
+
+		const attributes = collectInitialAttributes(props);
+		for (const key in attributes) {
+			if (hasOwn(attributes, key)) {
+				applyAttribute(el, key, attributes[key]);
+			}
+		}
+
+		const properties = collectInitialProperties(props);
+		for (const key in properties) {
+			if (hasOwn(properties, key)) {
+				setElementProperty(el, key, properties[key]);
+			}
+		}
+
+		// Clone the style bucket so the render pass applies a stable snapshot of the model.
+		const styles = Object.assign({}, getStyleBucket(props));
+		for (const key in styles) {
+			if (hasOwn(styles, key)) {
+				applyStyleValue(el as HTMLElement, key, styles[key]);
+			}
+		}
+
+		const className = getClassNameValue(props);
+		if (className) {
+			(el as HTMLElement).className = className;
+		}
+
+		const events = collectInitialEvents(props);
+		node.eventListeners = {};
+		for (const key in events) {
+			if (hasOwn(events, key)) {
+				const listener = (event: Event) => {
+					events[key](ctx, event);
+				};
+				el.addEventListener(key, listener);
+				node.eventListeners[key] = listener;
+			}
+		}
+
+		node.el = el;
+		parent.appendChild(el);
+
+		for (let i = 0; i < node.children.length; i++) {
+			renderPreparedNode(ctx, el, node.children[i]);
+		}
+
+		return el;
+	}
+
+	if (isTextNode(node)) {
+		const text = document.createTextNode(node.model.text);
+		node.el = text;
+		parent.appendChild(text);
+		return text;
+	}
+
+	node.model.component.render(parent);
+	return parent.lastChild as Node;
+}
+
+function unrenderPreparedNode(node: PreparedNode): void {
+	if (isElementNode(node)) {
+		for (let i = 0; i < node.children.length; i++) {
+			unrenderPreparedNode(node.children[i]);
+		}
+
+		if (node.el) {
+			for (const key in node.eventListeners) {
+				if (hasOwn(node.eventListeners, key)) {
+					node.el.removeEventListener(key, node.eventListeners[key]);
+				}
+			}
+
+			const properties = getPropertyBucket(node.model.props);
+			for (const key in properties) {
+				if (hasOwn(properties, key)) {
+					properties[key] = getElementProperty(node.el, key);
+				}
+			}
+
+			const styles = getStyleBucket(node.model.props);
+			for (const key in styles) {
+				if (hasOwn(styles, key)) {
+					styles[key] = (node.el as HTMLElement).style[key as never] as string;
+				}
+			}
+
+			setClassNameValue(node.model.props, (node.el as HTMLElement).className || null);
+		}
+
+		node.eventListeners = {};
+		node.el = null;
+		return;
+	}
+
+	if (isTextNode(node)) {
+		node.el = null;
+		return;
+	}
+
+	node.model.component.unrender();
+}
+
+function setPreparedNodeClassName(node: PreparedElementNode, className: string | null): void {
+	setClassNameValue(node.model.props, className && className.trim() ? className.trim() : null);
+	if (node.el) {
+		(node.el as HTMLElement).className = getClassNameValue(node.model.props) || '';
+	}
+}
+
+function addClassToPreparedNode(node: PreparedElementNode, className: string): void {
+	const classNames = new Set((getClassNameValue(node.model.props) || '').split(/\s+/).filter(Boolean));
+	const normalized = className.trim();
+	if (!normalized || classNames.has(normalized)) {
+		return;
+	}
+
+	classNames.add(normalized);
+	setPreparedNodeClassName(node, Array.from(classNames).join(' '));
+}
+
+function removeClassFromPreparedNode(node: PreparedElementNode, className: string): void {
+	const classNames = (getClassNameValue(node.model.props) || '').split(/\s+/).filter(Boolean);
+	const normalized = className.trim();
+	const filtered = classNames.filter(value => value !== normalized);
+	if (filtered.length === classNames.length) {
+		return;
+	}
+
+	setPreparedNodeClassName(node, filtered.join(' ') || null);
+}
+
+function hasClassOnPreparedNode(node: PreparedElementNode, className: string): boolean {
+	const normalized = className.trim();
+	return (getClassNameValue(node.model.props) || '').split(/\s+/).filter(Boolean).includes(normalized);
+}
+
+function setPreparedNodeAttribute(node: PreparedElementNode, name: string, value: unknown): void {
+	// Ensure the mutable attribute bucket exists before mutating the JSX model.
+	if (!isObjectRecord(node.model.props.attributes)) {
+		node.model.props.attributes = {};
+	}
+	const attributes = node.model.props.attributes as Record<string, unknown>;
+	attributes[name] = value;
+
+	if (node.el) {
+		applyAttribute(node.el, name, value);
+	}
+}
+
+function removePreparedNodeAttribute(node: PreparedElementNode, name: string): void {
+	const attributes = getAttributeBucket(node.model.props);
+	if (hasOwn(attributes, name)) {
+		delete attributes[name];
+	}
+
+	if (node.el) {
+		node.el.removeAttribute(name);
+	}
+}
+
+function setPreparedNodeProperty(node: PreparedElementNode, name: string, value: unknown): void {
+	// Ensure the mutable property bucket exists before mutating the JSX model.
+	if (!isObjectRecord(node.model.props.properties)) {
+		node.model.props.properties = {};
+	}
+	const properties = node.model.props.properties as Record<string, unknown>;
+	properties[name] = value;
+
+	if (node.el) {
+		properties[name] = setElementProperty(node.el, name, value);
+	}
+}
+
+function getPreparedNodeProperty(node: PreparedElementNode, name: string): unknown {
+	if (node.el) {
+		return getElementProperty(node.el, name);
+	}
+
+	const properties = getPropertyBucket(node.model.props);
+	if (hasOwn(properties, name)) {
+		return properties[name];
+	}
+
+	if (DIRECT_PROPERTY_NAMES[name] && hasOwn(node.model.props, name)) {
+		return node.model.props[name];
+	}
+
+	return undefined;
+}
+
+function setPreparedNodeStyle(node: PreparedElementNode, name: string, value: string | number): void {
+	// Ensure the mutable style bucket exists before mutating the JSX model.
+	if (!isObjectRecord(node.model.props.style)) {
+		node.model.props.style = {};
+	}
+	const style = node.model.props.style as Record<string, string | number>;
+	style[name] = value;
+
+	if (node.el) {
+		applyStyleValue(node.el as HTMLElement, name, value);
+		style[name] = (node.el as HTMLElement).style[name as never] as string;
+	}
+}
+
+function getPreparedNodeStyle(node: PreparedElementNode, name: string): string | number | undefined {
+	if (node.el) {
+		return (node.el as HTMLElement).style[name as never] as string;
+	}
+
+	return getStyleBucket(node.model.props)[name];
+}
+
+function setPreparedNodeEvent(
+	ctx: unknown,
+	node: PreparedElementNode,
+	event: string,
+	callback?: ElemEventCallback | null,
+): void {
+	// Ensure the mutable event bucket exists before mutating the JSX model.
+	if (!isObjectRecord(node.model.props.events)) {
+		node.model.props.events = {};
+	}
+	const events = node.model.props.events as Record<string, ElemEventCallback>;
+	const currentListener = node.eventListeners[event];
+	if (node.el && currentListener) {
+		node.el.removeEventListener(event, currentListener);
+		delete node.eventListeners[event];
+	}
+
+	if (!callback) {
+		if (hasOwn(events, event)) {
+			delete events[event];
+		}
+		return;
+	}
+
+	events[event] = callback;
+	if (node.el) {
+		const listener = (ev: Event) => {
+			callback(ctx, ev);
+		};
+		node.el.addEventListener(event, listener);
+		node.eventListeners[event] = listener;
+	}
 }
 
 /**
@@ -430,12 +664,9 @@ class Elem implements Component {
 	}
 
 	private applyJsx(element: JsxExpression): void {
-		if (!isElemInput(element)) {
-			throw new Error("Elem requires a structured JSX element object.");
-		}
-
-		this.idNode = {};
-		this.node = prepareNode(element, this.idNode) as PreparedElementNode;
+		const prepared = prepareJsxRoot(element);
+		this.idNode = prepared.idNode;
+		this.node = prepared.node;
 	}
 
 	/**
@@ -448,7 +679,7 @@ class Elem implements Component {
 			throw new Error("Already rendered.");
 		}
 
-		this.el = this.renderNode(el, this.node);
+		this.el = renderPreparedNode(this.ctx, el, this.node);
 	}
 
 	/**
@@ -460,7 +691,7 @@ class Elem implements Component {
 			return;
 		}
 
-		this.unrenderNode(this.node);
+		unrenderPreparedNode(this.node);
 
 		if (this.el.parentNode) {
 			this.el.parentNode.removeChild(this.el);
@@ -491,7 +722,7 @@ class Elem implements Component {
 	 * @returns A rendered DOM node, embedded component, or `null` for non-component nodes before render.
 	 */
 	getNode(nodeId: string): Node | Component | null {
-		const node = this.getPreparedNode(nodeId);
+		const node = getPreparedNode(this.idNode, nodeId);
 		return node.kind === 'component'
 			? node.model.component
 			: node.el;
@@ -513,7 +744,8 @@ class Elem implements Component {
 	 * @returns The current instance.
 	 */
 	addClass(className: string): this {
-		return this.addClassToNode(this.node, className);
+		addClassToPreparedNode(this.node, className);
+		return this;
 	}
 
 	/**
@@ -523,7 +755,8 @@ class Elem implements Component {
 	 * @returns The current instance.
 	 */
 	addNodeClass(nodeId: string, className: string): this {
-		return this.addClassToNode(this.getElementNode(nodeId), className);
+		addClassToPreparedNode(getElementPreparedNode(this.idNode, nodeId), className);
+		return this;
 	}
 
 	/**
@@ -532,7 +765,8 @@ class Elem implements Component {
 	 * @returns The current instance.
 	 */
 	removeClass(className: string): this {
-		return this.removeClassFromNode(this.node, className);
+		removeClassFromPreparedNode(this.node, className);
+		return this;
 	}
 
 	/**
@@ -542,7 +776,8 @@ class Elem implements Component {
 	 * @returns The current instance.
 	 */
 	removeNodeClass(nodeId: string, className: string): this {
-		return this.removeClassFromNode(this.getElementNode(nodeId), className);
+		removeClassFromPreparedNode(getElementPreparedNode(this.idNode, nodeId), className);
+		return this;
 	}
 
 	/**
@@ -551,7 +786,7 @@ class Elem implements Component {
 	 * @returns `true` if the class is present.
 	 */
 	hasClass(className: string): boolean {
-		return this.hasClassOnNode(this.node, className);
+		return hasClassOnPreparedNode(this.node, className);
 	}
 
 	/**
@@ -561,7 +796,7 @@ class Elem implements Component {
 	 * @returns `true` if the class is present.
 	 */
 	hasNodeClass(nodeId: string, className: string): boolean {
-		return this.hasClassOnNode(this.getElementNode(nodeId), className);
+		return hasClassOnPreparedNode(getElementPreparedNode(this.idNode, nodeId), className);
 	}
 
 	/**
@@ -570,7 +805,8 @@ class Elem implements Component {
 	 * @returns The current instance.
 	 */
 	setClassName(className?: string | null): this {
-		return this.setNodeClassNameValue(this.node, className ?? null);
+		setPreparedNodeClassName(this.node, className ?? null);
+		return this;
 	}
 
 	/**
@@ -580,7 +816,8 @@ class Elem implements Component {
 	 * @returns The current instance.
 	 */
 	setNodeClassName(nodeId: string, className?: string | null): this {
-		return this.setNodeClassNameValue(this.getElementNode(nodeId), className ?? null);
+		setPreparedNodeClassName(getElementPreparedNode(this.idNode, nodeId), className ?? null);
+		return this;
 	}
 
 	/**
@@ -590,7 +827,8 @@ class Elem implements Component {
 	 * @returns The current instance.
 	 */
 	setAttribute(name: string, value: unknown): this {
-		return this.setNodeAttributeValue(this.node, name, value);
+		setPreparedNodeAttribute(this.node, name, value);
+		return this;
 	}
 
 	/**
@@ -601,7 +839,8 @@ class Elem implements Component {
 	 * @returns The current instance.
 	 */
 	setNodeAttribute(nodeId: string, name: string, value: unknown): this {
-		return this.setNodeAttributeValue(this.getElementNode(nodeId), name, value);
+		setPreparedNodeAttribute(getElementPreparedNode(this.idNode, nodeId), name, value);
+		return this;
 	}
 
 	/**
@@ -610,7 +849,8 @@ class Elem implements Component {
 	 * @returns The current instance.
 	 */
 	removeAttribute(name: string): this {
-		return this.removeNodeAttributeValue(this.node, name);
+		removePreparedNodeAttribute(this.node, name);
+		return this;
 	}
 
 	/**
@@ -620,7 +860,8 @@ class Elem implements Component {
 	 * @returns The current instance.
 	 */
 	removeNodeAttribute(nodeId: string, name: string): this {
-		return this.removeNodeAttributeValue(this.getElementNode(nodeId), name);
+		removePreparedNodeAttribute(getElementPreparedNode(this.idNode, nodeId), name);
+		return this;
 	}
 
 	/**
@@ -630,7 +871,8 @@ class Elem implements Component {
 	 * @returns The current instance.
 	 */
 	setProperty(name: string, value: unknown): this {
-		return this.setNodePropertyValue(this.node, name, value);
+		setPreparedNodeProperty(this.node, name, value);
+		return this;
 	}
 
 	/**
@@ -641,7 +883,8 @@ class Elem implements Component {
 	 * @returns The current instance.
 	 */
 	setNodeProperty(nodeId: string, name: string, value: unknown): this {
-		return this.setNodePropertyValue(this.getElementNode(nodeId), name, value);
+		setPreparedNodeProperty(getElementPreparedNode(this.idNode, nodeId), name, value);
+		return this;
 	}
 
 	/**
@@ -650,7 +893,7 @@ class Elem implements Component {
 	 * @returns The current or stored property value.
 	 */
 	getProperty(name: string): unknown {
-		return this.getNodePropertyValue(this.node, name);
+		return getPreparedNodeProperty(this.node, name);
 	}
 
 	/**
@@ -660,7 +903,7 @@ class Elem implements Component {
 	 * @returns The current or stored property value.
 	 */
 	getNodeProperty(nodeId: string, name: string): unknown {
-		return this.getNodePropertyValue(this.getElementNode(nodeId), name);
+		return getPreparedNodeProperty(getElementPreparedNode(this.idNode, nodeId), name);
 	}
 
 	/**
@@ -670,7 +913,8 @@ class Elem implements Component {
 	 * @returns The current instance.
 	 */
 	setStyle(name: string, value: string | number): this {
-		return this.setNodeStyleValue(this.node, name, value);
+		setPreparedNodeStyle(this.node, name, value);
+		return this;
 	}
 
 	/**
@@ -681,7 +925,8 @@ class Elem implements Component {
 	 * @returns The current instance.
 	 */
 	setNodeStyle(nodeId: string, name: string, value: string | number): this {
-		return this.setNodeStyleValue(this.getElementNode(nodeId), name, value);
+		setPreparedNodeStyle(getElementPreparedNode(this.idNode, nodeId), name, value);
+		return this;
 	}
 
 	/**
@@ -690,7 +935,7 @@ class Elem implements Component {
 	 * @returns The current or stored style value.
 	 */
 	getStyle(name: string): string | number | undefined {
-		return this.getNodeStyleValue(this.node, name);
+		return getPreparedNodeStyle(this.node, name);
 	}
 
 	/**
@@ -700,7 +945,7 @@ class Elem implements Component {
 	 * @returns The current or stored style value.
 	 */
 	getNodeStyle(nodeId: string, name: string): string | number | undefined {
-		return this.getNodeStyleValue(this.getElementNode(nodeId), name);
+		return getPreparedNodeStyle(getElementPreparedNode(this.idNode, nodeId), name);
 	}
 
 	/**
@@ -730,7 +975,8 @@ class Elem implements Component {
 	 * @returns The current instance.
 	 */
 	setEvent(event: string, callback?: ElemEventCallback | null): this {
-		return this.setNodeEventValue(this.node, event, callback);
+		setPreparedNodeEvent(this.ctx, this.node, event, callback);
+		return this;
 	}
 
 	/**
@@ -751,7 +997,8 @@ class Elem implements Component {
 	 * @returns The current instance.
 	 */
 	setNodeEvent(nodeId: string, event: string, callback?: ElemEventCallback | null): this {
-		return this.setNodeEventValue(this.getElementNode(nodeId), event, callback);
+		setPreparedNodeEvent(this.ctx, getElementPreparedNode(this.idNode, nodeId), event, callback);
+		return this;
 	}
 
 	/**
@@ -761,254 +1008,7 @@ class Elem implements Component {
 	 * @returns The current instance.
 	 */
 	removeNodeEvent(nodeId: string, event: string): this {
-		return this.setNodeEventValue(this.getElementNode(nodeId), event);
-	}
-
-	private getPreparedNode(id: string): PreparedNode {
-		const node = this.idNode[id];
-		if (!node) {
-			throw new Error("Unknown node id: " + id);
-		}
-		return node;
-	}
-
-	private getElementNode(id: string): PreparedElementNode {
-		const node = this.getPreparedNode(id);
-		if (!isElementNode(node)) {
-			throw new Error("Node must be of type element.");
-		}
-		return node;
-	}
-
-	private renderNode(parent: ParentNode, node: PreparedNode): Node {
-		if (isElementNode(node)) {
-			const el = document.createElement(node.model.type);
-			const props = node.model.props;
-
-			const attributes = collectInitialAttributes(props);
-			for (const key in attributes) {
-				if (hasOwn(attributes, key)) {
-					applyAttribute(el, key, attributes[key]);
-				}
-			}
-
-			const properties = collectInitialProperties(props);
-			for (const key in properties) {
-				if (hasOwn(properties, key)) {
-					setElementProperty(el, key, properties[key]);
-				}
-			}
-
-			const styles = collectInitialStyles(props);
-			for (const key in styles) {
-				if (hasOwn(styles, key)) {
-					applyStyleValue(el as HTMLElement, key, styles[key]);
-				}
-			}
-
-			const className = getClassNameValue(props);
-			if (className) {
-				(el as HTMLElement).className = className;
-			}
-
-			const events = collectInitialEvents(props);
-			node.eventListeners = {};
-			for (const key in events) {
-				if (hasOwn(events, key)) {
-					const listener = (event: Event) => {
-						events[key](this.ctx, event);
-					};
-					el.addEventListener(key, listener);
-					node.eventListeners[key] = listener;
-				}
-			}
-
-			node.el = el;
-			parent.appendChild(el);
-
-			for (let i = 0; i < node.children.length; i++) {
-				this.renderNode(el, node.children[i]);
-			}
-
-			return el;
-		}
-
-		if (isTextNode(node)) {
-			const text = document.createTextNode(node.model.text);
-			node.el = text;
-			parent.appendChild(text);
-			return text;
-		}
-
-		node.model.component.render(parent);
-		return parent.lastChild as Node;
-	}
-
-	private unrenderNode(node: PreparedNode): void {
-		if (isElementNode(node)) {
-			for (let i = 0; i < node.children.length; i++) {
-				this.unrenderNode(node.children[i]);
-			}
-
-			if (node.el) {
-				for (const key in node.eventListeners) {
-					if (hasOwn(node.eventListeners, key)) {
-						node.el.removeEventListener(key, node.eventListeners[key]);
-					}
-				}
-
-				const properties = getPropertyBucket(node.model.props);
-				for (const key in properties) {
-					if (hasOwn(properties, key)) {
-						properties[key] = getElementProperty(node.el, key);
-					}
-				}
-
-				const styles = getStyleBucket(node.model.props);
-				for (const key in styles) {
-					if (hasOwn(styles, key)) {
-						styles[key] = (node.el as HTMLElement).style[key as never] as string;
-					}
-				}
-
-				setClassNameValue(node.model.props, (node.el as HTMLElement).className || null);
-			}
-
-			node.eventListeners = {};
-			node.el = null;
-			return;
-		}
-
-		if (isTextNode(node)) {
-			node.el = null;
-			return;
-		}
-
-		node.model.component.unrender();
-	}
-
-	private addClassToNode(node: PreparedElementNode, className: string): this {
-		const classNames = new Set((getClassNameValue(node.model.props) || '').split(/\s+/).filter(Boolean));
-		const normalized = className.trim();
-		if (!normalized || classNames.has(normalized)) {
-			return this;
-		}
-
-		classNames.add(normalized);
-		return this.setNodeClassNameValue(node, Array.from(classNames).join(' '));
-	}
-
-	private removeClassFromNode(node: PreparedElementNode, className: string): this {
-		const classNames = (getClassNameValue(node.model.props) || '').split(/\s+/).filter(Boolean);
-		const normalized = className.trim();
-		const filtered = classNames.filter(value => value !== normalized);
-		if (filtered.length === classNames.length) {
-			return this;
-		}
-
-		return this.setNodeClassNameValue(node, filtered.join(' ') || null);
-	}
-
-	private hasClassOnNode(node: PreparedElementNode, className: string): boolean {
-		const normalized = className.trim();
-		return (getClassNameValue(node.model.props) || '').split(/\s+/).filter(Boolean).includes(normalized);
-	}
-
-	private setNodeClassNameValue(node: PreparedElementNode, className: string | null): this {
-		setClassNameValue(node.model.props, className && className.trim() ? className.trim() : null);
-		if (node.el) {
-			(node.el as HTMLElement).className = getClassNameValue(node.model.props) || '';
-		}
-		return this;
-	}
-
-	private setNodeAttributeValue(node: PreparedElementNode, name: string, value: unknown): this {
-		const attributes = ensureAttributeBucket(node.model.props);
-		attributes[name] = value;
-
-		if (node.el) {
-			applyAttribute(node.el, name, value);
-		}
-
-		return this;
-	}
-
-	private removeNodeAttributeValue(node: PreparedElementNode, name: string): this {
-		const attributes = getAttributeBucket(node.model.props);
-		if (hasOwn(attributes, name)) {
-			delete attributes[name];
-		}
-
-		if (node.el) {
-			node.el.removeAttribute(name);
-		}
-
-		return this;
-	}
-
-	private setNodePropertyValue(node: PreparedElementNode, name: string, value: unknown): this {
-		const properties = ensurePropertyBucket(node.model.props);
-		properties[name] = value;
-
-		if (node.el) {
-			properties[name] = setElementProperty(node.el, name, value);
-		}
-
-		return this;
-	}
-
-	private getNodePropertyValue(node: PreparedElementNode, name: string): unknown {
-		if (node.el) {
-			return getElementProperty(node.el, name);
-		}
-
-		return getPropertyValue(node.model.props, name);
-	}
-
-	private setNodeStyleValue(node: PreparedElementNode, name: string, value: string | number): this {
-		const style = ensureStyleBucket(node.model.props);
-		style[name] = value;
-
-		if (node.el) {
-			applyStyleValue(node.el as HTMLElement, name, value);
-			style[name] = (node.el as HTMLElement).style[name as never] as string;
-		}
-
-		return this;
-	}
-
-	private getNodeStyleValue(node: PreparedElementNode, name: string): string | number | undefined {
-		if (node.el) {
-			return (node.el as HTMLElement).style[name as never] as string;
-		}
-
-		return getStyleBucket(node.model.props)[name];
-	}
-
-	private setNodeEventValue(node: PreparedElementNode, event: string, callback?: ElemEventCallback | null): this {
-		const events = ensureEventBucket(node.model.props);
-		const currentListener = node.eventListeners[event];
-		if (node.el && currentListener) {
-			node.el.removeEventListener(event, currentListener);
-			delete node.eventListeners[event];
-		}
-
-		if (!callback) {
-			if (hasOwn(events, event)) {
-				delete events[event];
-			}
-			return this;
-		}
-
-		events[event] = callback;
-		if (node.el) {
-			const listener = (ev: Event) => {
-				callback(this.ctx, ev);
-			};
-			node.el.addEventListener(event, listener);
-			node.eventListeners[event] = listener;
-		}
-
+		setPreparedNodeEvent(this.ctx, getElementPreparedNode(this.idNode, nodeId), event);
 		return this;
 	}
 }
