@@ -50,7 +50,6 @@ interface PreparedTextNode {
 interface PreparedComponentNode {
 	kind: 'component';
 	model: JsxComponentNode;
-	component: Component;
 }
 
 type PreparedNode = PreparedElementNode | PreparedTextNode | PreparedComponentNode;
@@ -346,7 +345,6 @@ function prepareNode(
 		const prepared: PreparedComponentNode = {
 			kind: 'component',
 			model: node,
-			component: node.component,
 		};
 
 		const nodeId = getPreparedNodeId(prepared);
@@ -480,6 +478,14 @@ class Elem implements Component {
 	}
 
 	/**
+	 * Gets the current structured JSX root object.
+	 * @returns The current root JSX element object.
+	 */
+	getJsx(): JsxElementObject {
+		return this.node.model;
+	}
+
+	/**
 	 * Gets a rendered node or embedded component by `nodeId`.
 	 * @param nodeId Node identifier from the JSX structure.
 	 * @returns A rendered DOM node, embedded component, or `null` for non-component nodes before render.
@@ -487,7 +493,7 @@ class Elem implements Component {
 	getNode(nodeId: string): Node | Component | null {
 		const node = this.getPreparedNode(nodeId);
 		return node.kind === 'component'
-			? node.component
+			? node.model.component
 			: node.el;
 	}
 
@@ -834,7 +840,7 @@ class Elem implements Component {
 			return text;
 		}
 
-		node.component.render(parent);
+		node.model.component.render(parent);
 		return parent.lastChild as Node;
 	}
 
@@ -878,7 +884,7 @@ class Elem implements Component {
 			return;
 		}
 
-		node.component.unrender();
+		node.model.component.unrender();
 	}
 
 	private addClassToNode(node: PreparedElementNode, className: string): this {

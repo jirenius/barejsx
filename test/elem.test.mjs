@@ -225,6 +225,8 @@ test('setJsx replaces the root and updates public fields and nodeId lookup', () 
 		},
 	});
 
+	assert.equal(elem.getJsx().type, 'section');
+	assert.equal(elem.getJsx().props.className, 'updated');
 	assert.throws(() => elem.getNode('first'), /Unknown node id/);
 	assert.equal(elem.getNode('second'), null);
 	assert.equal(elem.getNode('label'), null);
@@ -273,6 +275,25 @@ test('setJsx throws while rendered', () => {
 			props: {},
 		});
 	}, /Call to setJsx while rendered/);
+});
+
+test('getJsx reflects attribute mutations on root and child nodes', () => {
+	const elem = new Elem({
+		type: 'div',
+		props: {
+			children: [
+				{ type: 'span', props: { nodeId: 'label' } },
+			],
+		},
+	});
+
+	elem.setAttribute('data-id', 'root');
+	elem.setNodeAttribute('label', 'title', 'hello');
+
+	const jsx = elem.getJsx();
+
+	assert.equal(jsx.props.attributes['data-id'], 'root');
+	assert.equal(jsx.props.children[0].props.attributes.title, 'hello');
 });
 
 test('mutation helpers update model before render and DOM after render', () => {

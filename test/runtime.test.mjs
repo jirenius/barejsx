@@ -61,6 +61,8 @@ test('Elem JSX tags return Elem instances', () => {
 	});
 
 	assert.ok(elem instanceof Elem);
+	assert.equal(elem.getJsx().type, 'section');
+	assert.equal(elem.getJsx().props.children[0].type, 'span');
 	assert.equal(typeof elem.render, 'function');
 	assert.equal(typeof elem.getElement, 'function');
 });
@@ -75,6 +77,9 @@ test('Elem can be constructed from a structured JSX object', () => {
 	});
 
 	assert.ok(elem instanceof Elem);
+	assert.equal(elem.getJsx().type, 'div');
+	assert.equal(elem.getJsx().props.className, 'direct');
+	assert.deepEqual(elem.getJsx().props.children, [ { text: 'Hello' } ]);
 	assert.equal(typeof elem.render, 'function');
 	assert.equal(typeof elem.getElement, 'function');
 });
@@ -83,6 +88,8 @@ test('Elem JSX defaults as to div and rejects non-string values', () => {
 	const fallback = jsx(Elem, {});
 
 	assert.ok(fallback instanceof Elem);
+	assert.equal(fallback.getJsx().type, 'div');
+	assert.equal(Object.prototype.hasOwnProperty.call(fallback.getJsx().props, 'as'), false);
 	assert.equal(typeof fallback.render, 'function');
 
 	assert.throws(() => {
