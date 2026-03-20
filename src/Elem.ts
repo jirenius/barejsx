@@ -378,31 +378,14 @@ class Elem implements Component {
 	 * Creates a new element component.
 	 * @param element JSX expression whose runtime value must be a structured JSX element object.
 	 */
-	/** Structured JSX element model used as the root node. */
-	public readonly element: ElemInput;
-
-	/** Root intrinsic tag name. */
-	public readonly tagName: string;
-
-	/** Root element props. */
-	public readonly props: JsxElementObject['props'];
-	private readonly node: PreparedElementNode;
-	private readonly idNode: Record<string, PreparedNode>;
+	private node!: PreparedElementNode;
+	private idNode!: Record<string, PreparedNode>;
 	private ctx: unknown;
-	private el: Node | null;
+	private el: Node | null = null;
 
 	constructor(element: JsxExpression) {
-		if (!isElemInput(element)) {
-			throw new Error("Elem requires a structured JSX element object.");
-		}
-
-		this.element = element;
-		this.tagName = element.type;
-		this.props = element.props;
-		this.idNode = {};
-		this.node = prepareNode(element, this.idNode) as PreparedElementNode;
 		this.ctx = this;
-		this.el = null;
+		this.applyJsx(element);
 	}
 
 	/**
@@ -430,6 +413,31 @@ class Elem implements Component {
 		}
 
 		return new Elem(createStructuredElement(tagName, elementProps));
+	}
+
+	/**
+	 * Replaces the current root JSX element.
+	 * May not be called while rendered.
+	 * @param element JSX expression whose runtime value must be a structured JSX element object.
+	 * @returns The current instance.
+	 */
+	setJsx(element: JsxExpression): this {
+		if (this.el) {
+			throw new Error("Call to setJsx while rendered.");
+		}
+
+		this.applyJsx(element);
+
+		return this;
+	}
+
+	private applyJsx(element: JsxExpression): void {
+		if (!isElemInput(element)) {
+			throw new Error("Elem requires a structured JSX element object.");
+		}
+
+		this.idNode = {};
+		this.node = prepareNode(element, this.idNode) as PreparedElementNode;
 	}
 
 	/**

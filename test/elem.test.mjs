@@ -206,6 +206,75 @@ test('Elem rejects duplicate nodeId values during construction', () => {
 	}), /used multiple times/);
 });
 
+test('setJsx replaces the root and updates public fields and nodeId lookup', () => {
+	const elem = new Elem({
+		type: 'div',
+		props: {
+			nodeId: 'first',
+		},
+	});
+
+	elem.setJsx({
+		type: 'section',
+		props: {
+			nodeId: 'second',
+			className: 'updated',
+			children: [
+				{ type: 'span', props: { nodeId: 'label', children: [ { text: 'Hello' } ] } },
+			],
+		},
+	});
+
+	assert.throws(() => elem.getNode('first'), /Unknown node id/);
+	assert.equal(elem.getNode('second'), null);
+	assert.equal(elem.getNode('label'), null);
+
+	const parent = document.createElement('div');
+	elem.render(parent);
+	assert.equal(elem.getElement().tagName, 'SECTION');
+	assert.equal(elem.getElement().className, 'updated');
+});
+
+test('setJsx shares constructor validation and duplicate nodeId checks', () => {
+	const elem = new Elem({
+		type: 'div',
+		props: {},
+	});
+
+	assert.throws(() => {
+		elem.setJsx(new EmbeddedComponent('invalid'));
+	}, /Elem requires a structured JSX element object/);
+
+	assert.throws(() => {
+		elem.setJsx({
+			type: 'div',
+			props: {
+				nodeId: 'dup',
+				children: [
+					{ type: 'span', props: { nodeId: 'dup' } },
+				],
+			},
+		});
+	}, /used multiple times/);
+});
+
+test('setJsx throws while rendered', () => {
+	const elem = new Elem({
+		type: 'div',
+		props: {},
+	});
+	const parent = document.createElement('div');
+
+	elem.render(parent);
+
+	assert.throws(() => {
+		elem.setJsx({
+			type: 'section',
+			props: {},
+		});
+	}, /Call to setJsx while rendered/);
+});
+
 test('mutation helpers update model before render and DOM after render', () => {
 	const elem = new Elem({
 		type: 'button',
