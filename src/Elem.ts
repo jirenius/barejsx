@@ -2,7 +2,6 @@ import { createStructuredElement, hasOwn } from './internal';
 import type {
 	Component,
 	ElemEventCallback,
-	ElemInput,
 	ElemProps,
 	JsxComponentNode,
 	JsxElementObject,

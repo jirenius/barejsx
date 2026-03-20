@@ -54,6 +54,4 @@ export interface ElemProps {
 	children?: JsxChild;
 }
 
-export type ElemInput = JsxElementObject;
-
 export type JsxExpression = JsxElementObject | Component;
